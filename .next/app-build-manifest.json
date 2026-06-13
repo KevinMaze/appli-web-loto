@@ -1,0 +1,50 @@
+{
+  "pages": {
+    "/_not-found/page": [
+      "static/chunks/webpack-4ebfcd0abd2e4b97.js",
+      "static/chunks/fd9d1056-c2c3130918f6a1c6.js",
+      "static/chunks/23-4d3d0d961a0407ba.js",
+      "static/chunks/main-app-9e9e4287e2001d4d.js",
+      "static/chunks/app/_not-found/page-c9aee346316f50a7.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack-4ebfcd0abd2e4b97.js",
+      "static/chunks/fd9d1056-c2c3130918f6a1c6.js",
+      "static/chunks/23-4d3d0d961a0407ba.js",
+      "static/chunks/main-app-9e9e4287e2001d4d.js",
+      "static/css/ebf489a383e80555.css",
+      "static/chunks/513-beaae110bab21bcd.js",
+      "static/chunks/138-e403978a5c4f25b0.js",
+      "static/chunks/app/layout-af7f3bb88155b6f2.js"
+    ],
+    "/loto/page": [
+      "static/chunks/webpack-4ebfcd0abd2e4b97.js",
+      "static/chunks/fd9d1056-c2c3130918f6a1c6.js",
+      "static/chunks/23-4d3d0d961a0407ba.js",
+      "static/chunks/main-app-9e9e4287e2001d4d.js",
+      "static/chunks/513-beaae110bab21bcd.js",
+      "static/chunks/586-b6e09de6971264b4.js",
+      "static/chunks/390-9dbd070d15638661.js",
+      "static/chunks/app/loto/page-5f9a8ba5c97b9c40.js"
+    ],
+    "/euromillions/page": [
+      "static/chunks/webpack-4ebfcd0abd2e4b97.js",
+      "static/chunks/fd9d1056-c2c3130918f6a1c6.js",
+      "static/chunks/23-4d3d0d961a0407ba.js",
+      "static/chunks/main-app-9e9e4287e2001d4d.js",
+      "static/chunks/513-beaae110bab21bcd.js",
+      "static/chunks/586-b6e09de6971264b4.js",
+      "static/chunks/390-9dbd070d15638661.js",
+      "static/chunks/app/euromillions/page-60467ae6afb24066.js"
+    ],
+    "/page": [
+      "static/chunks/webpack-4ebfcd0abd2e4b97.js",
+      "static/chunks/fd9d1056-c2c3130918f6a1c6.js",
+      "static/chunks/23-4d3d0d961a0407ba.js",
+      "static/chunks/main-app-9e9e4287e2001d4d.js",
+      "static/chunks/513-beaae110bab21bcd.js",
+      "static/chunks/138-e403978a5c4f25b0.js",
+      "static/chunks/app/page-8b4c906bf9b2a079.js"
+    ]
+  }
+}

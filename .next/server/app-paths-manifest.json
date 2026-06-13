@@ -1,0 +1,8 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/loto/page": "app/loto/page.js",
+  "/euromillions/page": "app/euromillions/page.js",
+  "/page": "app/page.js",
+  "/api/loto/route": "app/api/loto/route.js",
+  "/api/euromillions/route": "app/api/euromillions/route.js"
+}
