@@ -1,6 +1,5 @@
 {
-  "/page": "app/page.js",
   "/loto/page": "app/loto/page.js",
-  "/api/loto/route": "app/api/loto/route.js",
-  "/api/update-supplement/route": "app/api/update-supplement/route.js"
+  "/euromillions/page": "app/euromillions/page.js",
+  "/page": "app/page.js"
 }

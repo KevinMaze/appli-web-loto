@@ -67,10 +67,11 @@ export function NumberFrequencyChart({
           <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
           <Bar dataKey="count" radius={[3, 3, 0, 0]}>
             {stats.map((entry) => {
-              let fill = color;
-              if (hotNumbers.includes(entry.number)) fill = "#ef4444";
-              else if (coldNumbers.includes(entry.number)) fill = "#3b82f6";
-              return <Cell key={entry.number} fill={fill} fillOpacity={0.8} />;
+              if (hotNumbers.includes(entry.number))
+                return <Cell key={entry.number} fill="#F97316" fillOpacity={0.95} />;
+              if (coldNumbers.includes(entry.number))
+                return <Cell key={entry.number} fill="#818CF8" fillOpacity={0.85} />;
+              return <Cell key={entry.number} fill={color} fillOpacity={0.45} />;
             })}
           </Bar>
         </BarChart>
@@ -79,15 +80,15 @@ export function NumberFrequencyChart({
       {/* Légende */}
       <div className="mt-2 flex items-center gap-4 text-xs text-white/40">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "#F97316" }} />
           Chaud (top 10)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "#818CF8" }} />
           Froid (bottom 10)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color, opacity: 0.45 }} />
           Neutre
         </span>
       </div>
