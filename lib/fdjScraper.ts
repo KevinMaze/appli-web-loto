@@ -4,9 +4,6 @@
  * La FDJ publie ses résultats via une app Next.js SSR. Les données sont
  * pré-chargées dans le HTML sous forme de chunks RSC (React Server Components).
  * On extrait le cache React Query embarqué dans le flux RSC.
- *
- * Limite : seuls les ~5 derniers tirages sont présents dans le RSC initial.
- * Pour plus d'historique, on itère sur les pages de résultats par date.
  */
 
 import type { LotoDraw, EuroDraw } from "./types";
@@ -35,22 +32,16 @@ interface RawFDJDraw {
 function extractRSCData(html: string): RawFDJDraw[] {
   const draws: RawFDJDraw[] = [];
 
-  // Extrait tous les chunks RSC
-  // Flag 's' (dotAll) remplacé par [\s\S] pour compatibilité ES2017
   const chunkRegex = /self\.__next_f\.push\(\[1,"([\s\S]*?)"\]\)/g;
   let match;
 
   while ((match = chunkRegex.exec(html)) !== null) {
     try {
-      // Décode l'échappement JSON du chunk
       const decoded = match[1]
         .replace(/\\n/g, "\n")
         .replace(/\\"/g, '"')
         .replace(/\\\\/g, "\\");
 
-      // Cherche les tirages : {"id":"...","gameName":"loto"|"euromillions","date":"...","numbers":[...]}
-      // Cherche les tirages avec leurs numéros et complémentaires
-      // Note: [^}]* ne suffit pas car "shares" contient des }, on utilise [\s\S]*? (non-greedy)
       const drawRegex =
         /\{"id":"([^"]+)","gameName":"(loto|euromillions)","date":"([^"]+)","externalId":"[^"]+","numbers":\[([^\]]+)\][\s\S]*?"complementariesNumbers":\[([^\]]*)\]/g;
 
@@ -79,13 +70,18 @@ function extractRSCData(html: string): RawFDJDraw[] {
     }
   }
 
-  return draws;
+  // Déduplique par id
+  const seen = new Set<string>();
+  return draws.filter((d) => {
+    if (seen.has(d.id)) return false;
+    seen.add(d.id);
+    return true;
+  });
 }
 
 /** Convertit un tirage FDJ brut en LotoDraw */
 function toLoTo(raw: RawFDJDraw): LotoDraw | null {
   try {
-    // Parse la date ISO en YYYY-MM-DD
     const isoDate = raw.date.slice(0, 10);
 
     const numbers = raw.numbers
@@ -126,8 +122,24 @@ function toEuro(raw: RawFDJDraw): EuroDraw | null {
   }
 }
 
+/** Fetch une URL FDJ et extrait les tirages bruts depuis le RSC */
+async function fetchFDJPage(url: string): Promise<RawFDJDraw[]> {
+  try {
+    const res = await fetch(url, {
+      headers: SCRAPE_HEADERS,
+      signal: AbortSignal.timeout(15000),
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    return extractRSCData(html);
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Scrape la page de résultats FDJ pour un jeu donné et retourne les tirages récents.
+ * Scrape la page de résultats FDJ pour un jeu donné.
  * La page SSR contient les ~5 derniers tirages pré-chargés dans le RSC.
  */
 export async function scrapeRecentDraws(
@@ -139,16 +151,7 @@ export async function scrapeRecentDraws(
       : `${FDJ_BASE}/jeux-de-tirage/euromillions/resultats`;
 
   try {
-    const res = await fetch(url, {
-      headers: SCRAPE_HEADERS,
-      signal: AbortSignal.timeout(20000),
-      next: { revalidate: 3600 },
-    });
-
-    if (!res.ok) return { loto: [], euro: [] };
-
-    const html = await res.text();
-    const rawDraws = extractRSCData(html);
+    const rawDraws = await fetchFDJPage(url);
 
     const loto: LotoDraw[] = rawDraws
       .filter((d) => d.gameName === "loto")
@@ -167,23 +170,117 @@ export async function scrapeRecentDraws(
 }
 
 /**
- * Scrape les tirages historiques récents (depuis août 2024) en naviguant
- * sur les pages de résultats FDJ semaine par semaine.
+ * Génère toutes les dates de tirage attendues entre deux dates ISO.
+ * Loto : lundi, mercredi, samedi
+ * Euro : mardi, vendredi
+ */
+function getExpectedDrawDates(
+  game: "loto" | "euromillions",
+  afterDate: string,
+  beforeDate: string
+): string[] {
+  const drawDays =
+    game === "loto"
+      ? [1, 3, 6] // Lundi=1, Mercredi=3, Samedi=6
+      : [2, 5];   // Mardi=2, Vendredi=5
+
+  const dates: string[] = [];
+  const start = new Date(afterDate);
+  const end = new Date(beforeDate);
+
+  // Avance d'un jour pour ne pas inclure afterDate lui-même
+  start.setDate(start.getDate() + 1);
+
+  const cur = new Date(start);
+  while (cur <= end) {
+    if (drawDays.includes(cur.getDay())) {
+      dates.push(cur.toISOString().slice(0, 10));
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  return dates;
+}
+
+/**
+ * Scrape les tirages historiques depuis une date donnée.
  *
- * Stratégie : on récupère les "drawGameActiveDates" (dates disponibles)
- * depuis la page principale, puis on les itère.
+ * Stratégie multi-passes :
+ * 1. Page principale (derniers ~5 tirages)
+ * 2. Pages par date (?date=YYYY-MM-DD et variantes)
+ * 3. Déduplication et filtrage
  */
 export async function scrapeHistoricalDraws(
   game: "loto" | "euromillions",
-  afterDate: string  // YYYY-MM-DD — on ne récupère que les tirages après cette date
+  afterDate: string
 ): Promise<{ loto: LotoDraw[]; euro: EuroDraw[] }> {
-  // La page principale donne les 5 derniers tirages
-  const recent = await scrapeRecentDraws(game);
+  const today = new Date().toISOString().slice(0, 10);
+  const allRaw: RawFDJDraw[] = [];
 
-  // Pour l'instant on retourne juste les résultats récents
-  // (couverture des ~5 derniers tirages = suffisant pour les dernières semaines)
-  const loto = recent.loto.filter((d) => d.date > afterDate);
-  const euro = recent.euro.filter((d) => d.date > afterDate);
+  // 1. Page principale (derniers tirages)
+  const baseUrl =
+    game === "loto"
+      ? `${FDJ_BASE}/jeux-de-tirage/loto/resultats`
+      : `${FDJ_BASE}/jeux-de-tirage/euromillions/resultats`;
+
+  const mainDraws = await fetchFDJPage(baseUrl);
+  allRaw.push(...mainDraws);
+
+  // 2. Essaie d'accéder aux pages par date pour couvrir les tirages manquants
+  // On cible les dates de tirages attendues entre afterDate et aujourd'hui
+  const expectedDates = getExpectedDrawDates(game, afterDate, today);
+
+  // Regroupe par semaines pour limiter les requêtes (max 8 semaines = 8 requêtes)
+  const datesByWeek = new Map<string, string>();
+  for (const date of expectedDates) {
+    const d = new Date(date);
+    // Lundi de la semaine comme clé
+    const dayOfWeek = d.getDay();
+    const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diff);
+    const weekKey = monday.toISOString().slice(0, 10);
+    if (!datesByWeek.has(weekKey)) {
+      datesByWeek.set(weekKey, date);
+    }
+  }
+
+  // Essaie plusieurs patterns d'URL FDJ avec une date représentative par semaine
+  const urlPatterns = [
+    (date: string) => `${baseUrl}?date=${date}`,
+    (date: string) => `${baseUrl}?drawDate=${date}`,
+    (date: string) => `${baseUrl}/${date}`,
+  ];
+
+  for (const [, repDate] of Array.from(datesByWeek.entries())) {
+    // Essaie le premier pattern qui retourne des données
+    for (const makeUrl of urlPatterns) {
+      const draws = await fetchFDJPage(makeUrl(repDate));
+      if (draws.length > 0) {
+        allRaw.push(...draws);
+        break;
+      }
+    }
+  }
+
+  // Déduplique et convertit
+  const seen = new Set<string>();
+  const uniqueRaw = allRaw.filter((d) => {
+    const key = `${d.gameName}:${d.date}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const loto: LotoDraw[] = uniqueRaw
+    .filter((d) => d.gameName === "loto")
+    .map(toLoTo)
+    .filter((d): d is LotoDraw => d !== null && d.date > afterDate);
+
+  const euro: EuroDraw[] = uniqueRaw
+    .filter((d) => d.gameName === "euromillions")
+    .map(toEuro)
+    .filter((d): d is EuroDraw => d !== null && d.date > afterDate);
 
   return { loto, euro };
 }

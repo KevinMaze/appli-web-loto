@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useEuromillionsData } from "@/hooks/useEuromillionsData";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { computeEuroStats, filterDrawsByDate, filterDrawsByNumbers } from "@/lib/statistics";
 import { EuroDrawCard } from "@/components/DrawCard";
 import { StatisticsPanel } from "@/components/StatisticsPanel";
@@ -24,6 +25,7 @@ function LoadingSkeleton() {
 /** Page principale EuroMillions */
 export default function EuromillionsPage() {
   const { draws, total, lastUpdated, isLoading, isError, refresh } = useEuromillionsData();
+  const { isUpdating, lastResult, triggerUpdate } = useAutoRefresh(refresh);
   const [filter, setFilter] = useState<DrawFilter>({});
   const [showCount, setShowCount] = useState(20);
 
@@ -56,12 +58,21 @@ export default function EuromillionsPage() {
           {lastUpdated && (
             <span>· mis à jour {new Date(lastUpdated).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
           )}
-          <button
-            onClick={() => refresh()}
-            className="ml-3 text-xs text-white/20 underline underline-offset-2 hover:text-white/50"
-          >
-            Actualiser
-          </button>
+          {isUpdating ? (
+            <span className="ml-3 text-xs text-amber-400/70 animate-pulse">⟳ Récupération des nouveaux tirages…</span>
+          ) : (
+            <>
+              {lastResult && lastResult.addedEuro > 0 && (
+                <span className="ml-3 text-xs text-green-400/70">+{lastResult.addedEuro} tirage{lastResult.addedEuro > 1 ? "s" : ""} ajouté{lastResult.addedEuro > 1 ? "s" : ""}</span>
+              )}
+              <button
+                onClick={() => triggerUpdate()}
+                className="ml-3 text-xs text-white/20 underline underline-offset-2 hover:text-white/50"
+              >
+                Actualiser
+              </button>
+            </>
+          )}
         </p>
       </motion.div>
 

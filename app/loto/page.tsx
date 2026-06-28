@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useLotoData } from "@/hooks/useLotoData";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { computeLotoStats, filterDrawsByDate, filterDrawsByNumbers } from "@/lib/statistics";
 import { LotoDrawCard } from "@/components/DrawCard";
 import { StatisticsPanel } from "@/components/StatisticsPanel";
@@ -25,6 +26,7 @@ function LoadingSkeleton() {
 /** Page principale Loto */
 export default function LotoPage() {
   const { draws, total, lastUpdated, isLoading, isError, refresh } = useLotoData();
+  const { isUpdating, lastResult, triggerUpdate } = useAutoRefresh(refresh);
   const [filter, setFilter] = useState<DrawFilter>({});
   const [showCount, setShowCount] = useState(20);
 
@@ -82,12 +84,21 @@ export default function LotoPage() {
           {lastUpdated && (
             <span>· mis à jour {new Date(lastUpdated).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
           )}
-          <button
-            onClick={() => refresh()}
-            className="ml-3 text-xs text-white/20 underline underline-offset-2 hover:text-white/50"
-          >
-            Actualiser
-          </button>
+          {isUpdating ? (
+            <span className="ml-3 text-xs text-amber-400/70 animate-pulse">⟳ Récupération des nouveaux tirages…</span>
+          ) : (
+            <>
+              {lastResult && lastResult.addedLoto > 0 && (
+                <span className="ml-3 text-xs text-green-400/70">+{lastResult.addedLoto} tirage{lastResult.addedLoto > 1 ? "s" : ""} ajouté{lastResult.addedLoto > 1 ? "s" : ""}</span>
+              )}
+              <button
+                onClick={() => triggerUpdate()}
+                className="ml-3 text-xs text-white/20 underline underline-offset-2 hover:text-white/50"
+              >
+                Actualiser
+              </button>
+            </>
+          )}
         </p>
       </motion.div>
 
