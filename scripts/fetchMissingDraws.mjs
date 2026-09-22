@@ -83,14 +83,56 @@ async function fetchEuroTirage(num) {
 
 // ─── Loto ─────────────────────────────────────────────────────────────────────
 //
-// Le Loto n'est pas accessible via loterieplus.com pour les années passées :
-// le formulaire Loto utilise JavaScript pour charger les données historiques
-// (les années != l'année en cours retournent une page vide côté serveur).
+// Le Loto n'est pas accessible via loterieplus.com (formulaire JS).
+// FDJ a par ailleurs retiré l'accès à son historique par date (voir lib/fdjScraper.ts) :
+// seul le tout dernier tirage reste récupérable en direct depuis fdj.fr.
 //
-// Les données Loto proviennent donc uniquement de :
-//   - CSV FDJ (2008 – juillet 2024)
-//   - Scraping FDJ récent (~5 derniers tirages, dans l'API route)
-// La période août 2024 – décembre 2025 (~220 tirages) est inaccessible gratuitement.
+// Source de secours : la page "20 derniers résultats" de tirage-gagnant.com,
+// rendue côté serveur (pas de JS requis), autorisée par leur robots.txt.
+// Elle ne couvre que les ~20 derniers tirages (~6-7 semaines) : le reste de
+// la période août 2024 – aujourd'hui non couverte par le CSV FDJ reste
+// inaccessible gratuitement.
+const TIRAGE_GAGNANT_LOTO_URL =
+  "https://tirage-gagnant.com/loto/resultats-loto/20-derniers-resultats/";
+
+/** Convertit une date "DD/MM/YY" (loterieplus/tirage-gagnant) en ISO YYYY-MM-DD */
+function parseShortDate(short) {
+  const [day, month, yy] = short.split("/");
+  if (!day || !month || !yy) return null;
+  return `20${yy}-${month}-${day}`;
+}
+
+/**
+ * Récupère les ~20 derniers tirages Loto depuis tirage-gagnant.com.
+ * @returns {Promise<{ date: string, numbers: number[], chance: number }[]>}
+ */
+async function fetchRecentLotoDraws() {
+  try {
+    const res = await fetch(TIRAGE_GAGNANT_LOTO_URL, {
+      headers: HEADERS,
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return [];
+
+    const html = await res.text();
+    const blockRegex =
+      /Résultat Loto du <\/span>\s*(\d{2}\/\d{2}\/\d{2})\s*<span class="date_full">[\s\S]{0,400}?<span class="num">(\d+)<\/span>\s*<span class="num">(\d+)<\/span>\s*<span class="num">(\d+)<\/span>\s*<span class="num">(\d+)<\/span>\s*<span class="num">(\d+)<\/span>[\s\S]{0,100}?<span class="chance">(\d+)<\/span>/g;
+
+    const draws = [];
+    let m;
+    while ((m = blockRegex.exec(html)) !== null) {
+      const [, shortDate, n1, n2, n3, n4, n5, chance] = m;
+      const date = parseShortDate(shortDate);
+      if (!date) continue;
+      const numbers = [n1, n2, n3, n4, n5].map(Number).sort((a, b) => a - b);
+      if (numbers.some((n) => n < 1 || n > 49)) continue;
+      draws.push({ date, numbers, chance: Number(chance) });
+    }
+    return draws;
+  } catch {
+    return [];
+  }
+}
 
 // ─── Utilitaires ──────────────────────────────────────────────────────────────
 
@@ -207,10 +249,23 @@ async function main() {
   );
 
   // ── 2. Loto ────────────────────────────────────────────────────────────────
-  // Le Loto historique n'est pas scrapable depuis loterieplus.com (JavaScript requis).
-  // Les données Loto dans le supplement viennent du scraping FDJ récent (routes API).
-  console.log("🎱 Loto : pas de scraping disponible (données via CSV FDJ + API route)\n");
+  // FDJ ne sert plus l'historique par date : on ne peut récupérer que les
+  // ~20 derniers tirages, via tirage-gagnant.com (rendu serveur, sans JS).
+  console.log("🎱 Récupération des derniers tirages Loto (tirage-gagnant.com)...");
+  const recentLoto = await fetchRecentLotoDraws();
+
   const newLotoDraws = [];
+  let lotoOk = 0, lotoSkip = 0;
+  for (const draw of recentLoto) {
+    if (existingLotoDates.has(draw.date)) {
+      lotoSkip++;
+    } else {
+      existingLotoDates.add(draw.date);
+      newLotoDraws.push(draw);
+      lotoOk++;
+    }
+  }
+  console.log(`   ✅ Loto : ${lotoOk} nouveaux, ${lotoSkip} déjà connus (${recentLoto.length} récupérés)\n`);
 
   // ── 3. Fusion et sauvegarde ────────────────────────────────────────────────
 

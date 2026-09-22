@@ -42,23 +42,32 @@ function extractRSCData(html: string): RawFDJDraw[] {
         .replace(/\\"/g, '"')
         .replace(/\\\\/g, "\\");
 
-      const drawRegex =
-        /\{"id":"([^"]+)","gameName":"(loto|euromillions)","date":"([^"]+)","externalId":"[^"]+","numbers":\[([^\]]+)\][\s\S]*?"complementariesNumbers":\[([^\]]*)\]/g;
+      // FDJ insère des champs variables entre "date" et "numbers" (ex: "gameExternalId"),
+      // et "complementariesNumbers" peut être loin après "numbers" (imbriqué sous "shares").
+      // On repère d'abord l'en-tête du tirage, puis on cherche "numbers" et
+      // "complementariesNumbers" dans une fenêtre bornée qui suit, sans supposer d'ordre strict.
+      const headerRegex = /"id":"(\d+)","gameName":"(loto|euromillions)","date":"([^"]+)"/g;
+      const WINDOW = 15000;
 
-      let drawMatch;
-      while ((drawMatch = drawRegex.exec(decoded)) !== null) {
-        const [, id, gameName, dateStr, numsRaw, extrasRaw] = drawMatch;
+      let headerMatch;
+      while ((headerMatch = headerRegex.exec(decoded)) !== null) {
+        const [, id, gameName, dateStr] = headerMatch;
+        const block = decoded.slice(headerMatch.index, headerMatch.index + WINDOW);
+
+        const numsMatch = block.match(/"numbers":\[([^\]]+)\]/);
+        if (!numsMatch) continue;
+        const extrasMatch = block.match(/"complementariesNumbers":\[([^\]]*)\]/);
 
         draws.push({
           id,
           gameName,
           date: dateStr,
-          numbers: numsRaw
+          numbers: numsMatch[1]
             .split(",")
             .map((n) => n.replace(/"/g, "").trim())
             .filter(Boolean),
-          complementariesNumbers: extrasRaw
-            ? extrasRaw
+          complementariesNumbers: extrasMatch
+            ? extrasMatch[1]
                 .split(",")
                 .map((n) => n.replace(/"/g, "").trim())
                 .filter(Boolean)
@@ -122,26 +131,6 @@ function toEuro(raw: RawFDJDraw): EuroDraw | null {
   }
 }
 
-/** Applique `fn` à `items` avec au plus `limit` requêtes FDJ simultanées */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 /** Fetch une URL FDJ et extrait les tirages bruts depuis le RSC */
 async function fetchFDJPage(url: string): Promise<RawFDJDraw[]> {
   try {
@@ -190,101 +179,24 @@ export async function scrapeRecentDraws(
 }
 
 /**
- * Génère toutes les dates de tirage attendues entre deux dates ISO.
- * Loto : lundi, mercredi, samedi
- * Euro : mardi, vendredi
- */
-function getExpectedDrawDates(
-  game: "loto" | "euromillions",
-  afterDate: string,
-  beforeDate: string
-): string[] {
-  const drawDays =
-    game === "loto"
-      ? [1, 3, 6] // Lundi=1, Mercredi=3, Samedi=6
-      : [2, 5];   // Mardi=2, Vendredi=5
-
-  const dates: string[] = [];
-  const start = new Date(afterDate);
-  const end = new Date(beforeDate);
-
-  // Avance d'un jour pour ne pas inclure afterDate lui-même
-  start.setDate(start.getDate() + 1);
-
-  const cur = new Date(start);
-  while (cur <= end) {
-    if (drawDays.includes(cur.getDay())) {
-      dates.push(cur.toISOString().slice(0, 10));
-    }
-    cur.setDate(cur.getDate() + 1);
-  }
-
-  return dates;
-}
-
-/**
- * Scrape les tirages historiques depuis une date donnée.
+ * Scrape le(s) tirage(s) le(s) plus récent(s) depuis fdj.fr.
  *
- * Stratégie multi-passes :
- * 1. Page principale (derniers ~5 tirages)
- * 2. Pages par date (?date=YYYY-MM-DD et variantes)
- * 3. Déduplication et filtrage
+ * Note : FDJ a retiré l'accès aux résultats par date — toute URL historique
+ * (?date=, /YYYY-MM-DD, etc.) redirige désormais vers la page du dernier
+ * tirage. Seul le tirage le plus récent est donc récupérable ici ; le reste
+ * de l'historique post-CSV doit venir d'une autre source
+ * (voir scripts/fetchMissingDraws.mjs).
  */
 export async function scrapeHistoricalDraws(
   game: "loto" | "euromillions",
   afterDate: string
 ): Promise<{ loto: LotoDraw[]; euro: EuroDraw[] }> {
-  const today = new Date().toISOString().slice(0, 10);
-  const allRaw: RawFDJDraw[] = [];
-
-  // 1. Page principale (derniers tirages)
   const baseUrl =
     game === "loto"
       ? `${FDJ_BASE}/jeux-de-tirage/loto/resultats`
       : `${FDJ_BASE}/jeux-de-tirage/euromillions/resultats`;
 
-  // 2. Essaie d'accéder aux pages par date pour couvrir les tirages manquants
-  // On cible les dates de tirages attendues entre afterDate et aujourd'hui
-  const expectedDates = getExpectedDrawDates(game, afterDate, today);
-
-  // Regroupe par semaines pour limiter les requêtes (une par semaine)
-  const datesByWeek = new Map<string, string>();
-  for (const date of expectedDates) {
-    const d = new Date(date);
-    // Lundi de la semaine comme clé
-    const dayOfWeek = d.getDay();
-    const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const monday = new Date(d);
-    monday.setDate(d.getDate() + diff);
-    const weekKey = monday.toISOString().slice(0, 10);
-    if (!datesByWeek.has(weekKey)) {
-      datesByWeek.set(weekKey, date);
-    }
-  }
-
-  // Essaie plusieurs patterns d'URL FDJ avec une date représentative par semaine
-  const urlPatterns = [
-    (date: string) => `${baseUrl}?date=${date}`,
-    (date: string) => `${baseUrl}?drawDate=${date}`,
-    (date: string) => `${baseUrl}/${date}`,
-  ];
-
-  async function fetchWeek(repDate: string): Promise<RawFDJDraw[]> {
-    // Essaie le premier pattern qui retourne des données
-    for (const makeUrl of urlPatterns) {
-      const draws = await fetchFDJPage(makeUrl(repDate));
-      if (draws.length > 0) return draws;
-    }
-    return [];
-  }
-
-  // Page principale + toutes les semaines en parallèle (concurrence limitée pour ménager fdj.fr)
-  const [mainDraws, weekResults] = await Promise.all([
-    fetchFDJPage(baseUrl),
-    mapWithConcurrency(Array.from(datesByWeek.values()), 10, fetchWeek),
-  ]);
-
-  allRaw.push(...mainDraws, ...weekResults.flat());
+  const allRaw = await fetchFDJPage(baseUrl);
 
   // Déduplique et convertit
   const seen = new Set<string>();
