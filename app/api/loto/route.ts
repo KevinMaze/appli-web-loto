@@ -12,9 +12,9 @@ import { scrapeHistoricalDraws } from "@/lib/fdjScraper";
  * Les tirages plus récents sont récupérés via scraping du site fdj.fr (SSR).
  */
 const LOTO_CSV_URLS = [
-  "https://cdn-media.fdj.fr/static-draws/csv/loto/loto_201911.zip", // 2019-2024
-  "https://cdn-media.fdj.fr/static-draws/csv/loto/loto_201703.zip", // 2017-2019
-  "https://cdn-media.fdj.fr/static-draws/csv/loto/loto_200810.zip", // 2008-2017
+  "https://media.fdj.fr/static-draws/csv/loto/loto_201911.zip", // 2019-2024
+  "https://media.fdj.fr/static-draws/csv/loto/loto_201703.zip", // 2017-2019
+  "https://media.fdj.fr/static-draws/csv/loto/loto_200810.zip", // 2008-2017
 ];
 
 /** Date du dernier CSV FDJ — après cette date on complète par scraping */

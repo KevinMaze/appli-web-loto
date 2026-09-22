@@ -12,10 +12,10 @@ import { scrapeHistoricalDraws } from "@/lib/fdjScraper";
  * Les tirages plus récents sont scrappés depuis fdj.fr (SSR, sans clé API).
  */
 const EURO_CSV_URLS = [
-  "https://cdn-media.fdj.fr/static-draws/csv/euromillions/euromillions_202002.zip", // 2020-2024
-  "https://cdn-media.fdj.fr/static-draws/csv/euromillions/euromillions_201609.zip", // 2016-2020
-  "https://cdn-media.fdj.fr/static-draws/csv/euromillions/euromillions_201105.zip", // 2011-2016
-  "https://cdn-media.fdj.fr/static-draws/csv/euromillions/euromillions_200402.zip", // 2004-2011
+  "https://media.fdj.fr/static-draws/csv/euromillions/euromillions_202002.zip", // 2020-2024
+  "https://media.fdj.fr/static-draws/csv/euromillions/euromillions_201609.zip", // 2016-2020
+  "https://media.fdj.fr/static-draws/csv/euromillions/euromillions_201105.zip", // 2011-2016
+  "https://media.fdj.fr/static-draws/csv/euromillions/euromillions_200402.zip", // 2004-2011
 ];
 
 const CSV_CUTOFF_DATE = "2024-07-23";
