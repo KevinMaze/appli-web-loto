@@ -87,9 +87,13 @@ export async function GET() {
   const allDraws: LotoDraw[] = [];
   const seenDates = new Set<string>();
 
-  // 1. Données historiques depuis les CSV FDJ (2008-2024)
-  for (const url of LOTO_CSV_URLS) {
-    const csv = await fetchAndExtractZip(url);
+  // 1. Données historiques depuis les CSV FDJ (2008-2024) + scraping récent, en parallèle
+  const [csvResults, scraped] = await Promise.all([
+    Promise.all(LOTO_CSV_URLS.map((url) => fetchAndExtractZip(url))),
+    scrapeHistoricalDraws("loto", CSV_CUTOFF_DATE).catch(() => ({ loto: [] as LotoDraw[] })),
+  ]);
+
+  for (const csv of csvResults) {
     if (!csv) continue;
     for (const draw of parseLotoCSV(csv)) {
       if (!seenDates.has(draw.date)) {
@@ -116,17 +120,12 @@ export async function GET() {
     // Fichier optionnel — fonctionne sans
   }
 
-  // 3. Tirages très récents depuis le scraping FDJ (~5 derniers tirages)
-  try {
-    const { loto: recentDraws } = await scrapeHistoricalDraws("loto", CSV_CUTOFF_DATE);
-    for (const draw of recentDraws) {
-      if (!seenDates.has(draw.date)) {
-        seenDates.add(draw.date);
-        allDraws.push(draw);
-      }
+  // 3. Tirages très récents depuis le scraping FDJ (~5 derniers tirages), déjà récupérés en parallèle ci-dessus
+  for (const draw of scraped.loto) {
+    if (!seenDates.has(draw.date)) {
+      seenDates.add(draw.date);
+      allDraws.push(draw);
     }
-  } catch {
-    // Le scraping peut échouer sans bloquer — les données CSV sont suffisantes
   }
 
   if (allDraws.length === 0) {

@@ -122,6 +122,26 @@ function toEuro(raw: RawFDJDraw): EuroDraw | null {
   }
 }
 
+/** Applique `fn` à `items` avec au plus `limit` requêtes FDJ simultanées */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** Fetch une URL FDJ et extrait les tirages bruts depuis le RSC */
 async function fetchFDJPage(url: string): Promise<RawFDJDraw[]> {
   try {
@@ -223,14 +243,11 @@ export async function scrapeHistoricalDraws(
       ? `${FDJ_BASE}/jeux-de-tirage/loto/resultats`
       : `${FDJ_BASE}/jeux-de-tirage/euromillions/resultats`;
 
-  const mainDraws = await fetchFDJPage(baseUrl);
-  allRaw.push(...mainDraws);
-
   // 2. Essaie d'accéder aux pages par date pour couvrir les tirages manquants
   // On cible les dates de tirages attendues entre afterDate et aujourd'hui
   const expectedDates = getExpectedDrawDates(game, afterDate, today);
 
-  // Regroupe par semaines pour limiter les requêtes (max 8 semaines = 8 requêtes)
+  // Regroupe par semaines pour limiter les requêtes (une par semaine)
   const datesByWeek = new Map<string, string>();
   for (const date of expectedDates) {
     const d = new Date(date);
@@ -252,16 +269,22 @@ export async function scrapeHistoricalDraws(
     (date: string) => `${baseUrl}/${date}`,
   ];
 
-  for (const [, repDate] of Array.from(datesByWeek.entries())) {
+  async function fetchWeek(repDate: string): Promise<RawFDJDraw[]> {
     // Essaie le premier pattern qui retourne des données
     for (const makeUrl of urlPatterns) {
       const draws = await fetchFDJPage(makeUrl(repDate));
-      if (draws.length > 0) {
-        allRaw.push(...draws);
-        break;
-      }
+      if (draws.length > 0) return draws;
     }
+    return [];
   }
+
+  // Page principale + toutes les semaines en parallèle (concurrence limitée pour ménager fdj.fr)
+  const [mainDraws, weekResults] = await Promise.all([
+    fetchFDJPage(baseUrl),
+    mapWithConcurrency(Array.from(datesByWeek.values()), 10, fetchWeek),
+  ]);
+
+  allRaw.push(...mainDraws, ...weekResults.flat());
 
   // Déduplique et convertit
   const seen = new Set<string>();

@@ -93,9 +93,13 @@ export async function GET() {
   const allDraws: EuroDraw[] = [];
   const seenDates = new Set<string>();
 
-  // 1. Données CSV historiques (2004-2024)
-  for (const url of EURO_CSV_URLS) {
-    const csv = await fetchAndExtractZip(url);
+  // 1. Données CSV historiques (2004-2024) + scraping récent, en parallèle
+  const [csvResults, scraped] = await Promise.all([
+    Promise.all(EURO_CSV_URLS.map((url) => fetchAndExtractZip(url))),
+    scrapeHistoricalDraws("euromillions", CSV_CUTOFF_DATE).catch(() => ({ euro: [] as EuroDraw[] })),
+  ]);
+
+  for (const csv of csvResults) {
     if (!csv) continue;
     for (const draw of parseEuroCSV(csv)) {
       if (!seenDates.has(draw.date)) {
@@ -122,17 +126,12 @@ export async function GET() {
     // Fichier optionnel — fonctionne sans
   }
 
-  // 3. Tirages très récents depuis le scraping FDJ (~5 derniers tirages)
-  try {
-    const { euro: recentDraws } = await scrapeHistoricalDraws("euromillions", CSV_CUTOFF_DATE);
-    for (const draw of recentDraws) {
-      if (!seenDates.has(draw.date)) {
-        seenDates.add(draw.date);
-        allDraws.push(draw);
-      }
+  // 3. Tirages très récents depuis le scraping FDJ (~5 derniers tirages), déjà récupérés en parallèle ci-dessus
+  for (const draw of scraped.euro) {
+    if (!seenDates.has(draw.date)) {
+      seenDates.add(draw.date);
+      allDraws.push(draw);
     }
-  } catch {
-    // Scraping optionnel — ne bloque pas si indisponible
   }
 
   if (allDraws.length === 0) {
